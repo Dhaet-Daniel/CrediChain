@@ -1,5 +1,5 @@
 import { SafeAreaView, ScrollView, View, Text, Card, CardHeader, CardTitle, CardDescription, CardContent, Button, Input, Badge } from "@/components/ui";
-import { Search, ShieldCheck, Award, QrCode, FileCheck, ArrowRight, Plus } from "lucide-react-native";
+import { Search, ShieldCheck, Award, QrCode, FileCheck, ArrowRight, Plus, Activity, Landmark, Users, CheckCircle } from "lucide-react-native";
 import { useState, useEffect } from "react";
 import { supabase } from "@/config/supabase";
 import { useRouter } from "expo-router";
@@ -7,147 +7,158 @@ import { useRouter } from "expo-router";
 export default function HomeScreen() {
   const router = useRouter();
   const [credentials, setCredentials] = useState<any[] | null>(null);
-  const [searchHash, setSearchHash] = useState("");
+  const [verifications, setVerifications] = useState<any[] | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchCredentials();
-
-    const channel = supabase
-      .channel('credentials_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'credentials' }, (payload) => {
-        fetchCredentials();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    fetchData();
+    const channel = supabase.channel('db_changes').on('postgres_changes', { event: '*', schema: 'public' }, () => fetchData()).subscribe();
+    return () => { supabase.removeChannel(channel); };
   }, []);
 
-  async function fetchCredentials() {
+  async function fetchData() {
     try {
-      const { data, error } = await supabase
-        .from('credentials')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setCredentials(data);
+      const { data: creds } = await supabase.from('credentials').select('*').order('created_at', { ascending: false });
+      const { data: vers } = await supabase.from('verifications').select('*, credentials(student_name, degree)').order('timestamp', { ascending: false }).limit(5);
+      setCredentials(creds);
+      setVerifications(vers);
     } catch (error) {
-      console.error('Error fetching credentials:', error);
+      console.error(error);
     } finally {
       setLoading(false);
     }
   }
 
-  const handleVerifySearch = () => {
-    if (!searchHash) return;
-    router.push({
-      pathname: "/(tabs)/explore",
-      params: { hash: searchHash }
-    });
-  };
+  // Filter credentials based on search query (Name or Degree)
+  const filteredCredentials = credentials?.filter(c => 
+    c.student_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    c.degree.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <SafeAreaView edges={["top"]} className="flex-1 bg-background">
       <ScrollView className="flex-1" contentContainerClassName="p-6">
-        <View className="flex-row justify-between items-center mb-8">
-          <View>
-            <Text variant="h1" className="text-primary font-bold">CrediChain</Text>
-            <Text variant="muted">Academic Ledger (Supabase)</Text>
+        
+        {/* University Profile Header */}
+        <View className="flex-row justify-between items-center mb-6 bg-primary/5 p-4 rounded-2xl border border-primary/10">
+          <View className="flex-row items-center gap-3">
+            <View className="bg-primary p-2 rounded-lg">
+              <Landmark size={20} className="text-white" />
+            </View>
+            <View>
+              <Text className="font-bold text-foreground">University of Excellence</Text>
+              <Text className="text-[10px] text-primary uppercase font-bold tracking-tighter">Verified Issuer • West Africa</Text>
+            </View>
           </View>
-          <Button variant="secondary" size="icon" className="rounded-full" onPress={() => router.push("/issue")}>
+          <Button variant="ghost" size="icon" className="rounded-full" onPress={() => router.push("/issue")}>
             <Plus className="text-primary h-6 w-6" />
           </Button>
         </View>
 
-        {/* Verification Bar */}
-        <Card className="mb-6 border-primary/20">
-          <CardHeader>
-            <CardTitle>
-              <Text>Verify a Credential</Text>
-            </CardTitle>
-            <CardDescription>
-              <Text>Enter the unique certificate hash or scan QR code</Text>
-            </CardDescription>
+        <Text variant="h1" className="text-foreground font-bold mb-1">Global Ledger</Text>
+        <Text variant="muted" className="mb-8 text-xs">Real-time immutable credential stream</Text>
+
+        {/* Verification & Search Bar */}
+        <Card className="mb-8 border-primary/20 shadow-sm">
+          <CardHeader className="pb-4">
+            <CardTitle><Text>Verify Credential</Text></CardTitle>
           </CardHeader>
-          <CardContent className="gap-4">
+          <CardContent className="gap-3">
             <View className="flex-row gap-2">
-              <View className="flex-1">
+              <View className="flex-1 relative justify-center">
+                <Search size={16} className="absolute left-3 text-muted-foreground z-10" />
                 <Input 
-                  placeholder="0x..." 
-                  value={searchHash}
-                  onChangeText={setSearchHash}
+                  placeholder="Search name or 0x hash..." 
+                  className="pl-10 h-12" 
+                  value={searchQuery} 
+                  onChangeText={setSearchQuery} 
                 />
               </View>
-              <Button size="icon" variant="secondary">
-                <QrCode className="h-4 w-4" />
+              <Button size="icon" variant="secondary" className="h-12 w-12" onPress={() => router.push("/scan")}>
+                <QrCode className="h-5 w-5 text-primary" />
               </Button>
             </View>
-            <Button className="w-full" onPress={handleVerifySearch}>
-              <Search className="h-4 w-4 mr-2" />
-              <Text>Verify Credential</Text>
-            </Button>
+            {searchQuery.startsWith('0x') && (
+              <Button className="w-full h-12" onPress={() => router.push({ pathname: "/(tabs)/explore", params: { hash: searchQuery } })}>
+                <CheckCircle size={18} className="mr-2 text-white" />
+                <Text>Verify Hash Authenticity</Text>
+              </Button>
+            )}
           </CardContent>
         </Card>
 
-        {/* Stats */}
-        <View className="flex-row gap-4 mb-6">
-          <Card className="flex-1">
-            <CardContent className="pt-6 items-center">
-              <Award className="h-8 w-8 text-primary mb-2" />
-              <Text variant="h3">
-                <Text>{credentials?.length || 0}</Text>
-              </Text>
-              <Text variant="small" className="text-center text-muted-foreground">Issued</Text>
-            </CardContent>
-          </Card>
-          <Card className="flex-1">
-            <CardContent className="pt-6 items-center">
-              <FileCheck className="h-8 w-8 text-green-500 mb-2" />
-              <Text variant="h3">
-                <Text>1,204</Text>
-              </Text>
-              <Text variant="small" className="text-center text-muted-foreground">Verified</Text>
-            </CardContent>
-          </Card>
+        {/* Ecosystem Stats */}
+        <View className="flex-row gap-4 mb-8">
+          <View className="flex-1 bg-background border border-border p-4 rounded-2xl items-center shadow-sm">
+            <Award size={20} className="text-primary mb-1" />
+            <Text className="text-lg font-bold text-foreground">{credentials?.length || 0}</Text>
+            <Text className="text-[10px] text-muted-foreground uppercase">Issued</Text>
+          </View>
+          <View className="flex-1 bg-background border border-border p-4 rounded-2xl items-center shadow-sm">
+            <Activity size={20} className="text-green-500 mb-1" />
+            <Text className="text-lg font-bold text-foreground">1.2k</Text>
+            <Text className="text-[10px] text-muted-foreground uppercase">Verifications</Text>
+          </View>
+          <View className="flex-1 bg-background border border-border p-4 rounded-2xl items-center shadow-sm">
+            <Users size={20} className="text-blue-500 mb-1" />
+            <Text className="text-lg font-bold text-foreground">98%</Text>
+            <Text className="text-[10px] text-muted-foreground uppercase">Trust Score</Text>
+          </View>
         </View>
 
-        {/* Recent Credentials */}
-        <View className="mb-4 flex-row justify-between items-end">
-          <Text variant="h4">Recently Issued</Text>
-          <Button variant="link" size="sm">
-            <Text className="text-primary">View all</Text>
-            <ArrowRight className="h-4 w-4 ml-1 text-primary" />
+        {/* Audit Log / Verification Feed */}
+        <View className="flex-row justify-between items-center mb-4">
+          <Text variant="h4" className="text-foreground font-bold">Live Verification Audit</Text>
+          <Activity size={16} className="text-primary animate-pulse" />
+        </View>
+        <Card className="mb-8 bg-muted/20 border-0">
+          <CardContent className="p-4">
+            {verifications?.length === 0 && <Text className="text-muted-foreground text-center py-4">Waiting for verification events...</Text>}
+            {verifications?.map((v) => (
+              <View key={v.id} className="flex-row items-center gap-3 mb-4 last:mb-0">
+                <View className={`p-2 rounded-full ${v.result ? 'bg-green-500/10' : 'bg-destructive/10'}`}>
+                  <Activity size={14} className={v.result ? 'text-green-500' : 'text-destructive'} />
+                </View>
+                <View className="flex-1">
+                  <Text variant="small" className="font-bold text-foreground">{v.credentials?.student_name || 'System Query'}</Text>
+                  <Text className="text-[10px] text-muted-foreground">{v.result ? 'Authenticity Confirmed' : 'Verification Denied'}</Text>
+                </View>
+                <Text className="text-[10px] text-muted-foreground italic">{new Date(v.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</Text>
+              </View>
+            ))}
+          </CardContent>
+        </Card>
+
+        {/* Credentials List */}
+        <Text variant="h4" className="mb-4 text-foreground font-bold">Document Registry</Text>
+        {filteredCredentials?.map((cred) => (
+          <Button key={cred.id} variant="ghost" className="p-0 h-auto mb-3" onPress={() => router.push(`/credential/${cred.id}`)}>
+            <Card className="w-full border-l-4" style={{ borderLeftColor: cred.status === 'active' ? '#10b981' : '#ef4444' }}>
+              <CardContent className="p-4 flex-row justify-between items-center">
+                <View className="flex-1">
+                  <Text className="font-bold text-foreground text-left">{cred.student_name}</Text>
+                  <Text className="text-xs text-muted-foreground text-left mt-0.5">{cred.degree}</Text>
+                </View>
+                <View className="items-end">
+                   <Badge variant={cred.status === "active" ? "default" : "destructive"} className="h-6">
+                      <Text className="text-[9px] uppercase text-white font-bold">{cred.status}</Text>
+                   </Badge>
+                   <Text className="text-[9px] text-muted-foreground mt-1 font-mono">{cred.hash.substring(0, 12)}...</Text>
+                </View>
+              </CardContent>
+            </Card>
           </Button>
-        </View>
-
-        {credentials?.map((cred) => (
-          <Card key={cred.id} className="mb-3">
-            <CardContent className="p-4 flex-row justify-between items-center">
-              <View className="flex-1">
-                <Text variant="large" className="font-semibold">{cred.student_name}</Text>
-                <Text variant="small" className="text-muted-foreground">{cred.institution}</Text>
-                <Text variant="small" className="text-primary mt-1">{cred.degree}</Text>
-              </View>
-              <View className="items-end">
-                <Badge variant={cred.status === "active" ? "default" : "destructive"}>
-                  <Text className="text-[10px] uppercase">{cred.status}</Text>
-                </Badge>
-                <Text variant="code" className="text-[10px] mt-2 text-muted-foreground">
-                  {cred.hash.substring(0, 10)}...
-                </Text>
-              </View>
-            </CardContent>
-          </Card>
         ))}
 
-        {loading && (
-           <View className="py-10 items-center">
-             <Text className="text-muted-foreground">Loading credentials...</Text>
-           </View>
+        {loading && <Text className="text-center text-muted-foreground py-10 italic">Querying Ledger...</Text>}
+        {!loading && filteredCredentials?.length === 0 && (
+          <View className="py-20 items-center">
+            <Text className="text-muted-foreground text-center">No records matching your search.</Text>
+          </View>
         )}
+        
+        <View className="h-10" />
       </ScrollView>
     </SafeAreaView>
   );
